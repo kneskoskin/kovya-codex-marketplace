@@ -1,0 +1,22 @@
+{
+  "name": "kovya-codex",
+  "version": "0.1.0-preview.10.3",
+  "description": "Kovya automatic memory connector preview; shared runtime acceptance remains required.",
+  "author": {
+    "name": "Kovya"
+  },
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Kovya",
+    "shortDescription": "Kovya memory connector preview",
+    "longDescription": "One Kovya account across supported coding harnesses. Development preview with operational gates outstanding.",
+    "developerName": "Kovya",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "Check Kovya memory status."
+  }
+}

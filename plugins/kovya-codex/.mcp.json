@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "kovya": {
+      "command": "${PLUGIN_ROOT}/connector/claude-code/client/kovya_windows_broker_native.exe",
+      "args": [
+        "launch",
+        "mcp"
+      ]
+    }
+  }
+}

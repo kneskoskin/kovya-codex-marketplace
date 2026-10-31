@@ -1,0 +1,1 @@
+This preview is assembled for review. Publication, included native-pair qualification and installed-host acceptance are release-specific; package contents alone do not establish live sign-in. An unconfigured preview carries no executable; configured build input may include a bootstrap executable. npm publication is prevented by private:true. No registry name ownership is claimed.

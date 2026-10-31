@@ -1,0 +1,20 @@
+{
+  "name": "kovya-cohort",
+  "interface": {
+    "displayName": "Kovya cohort"
+  },
+  "plugins": [
+    {
+      "name": "kovya-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/kovya-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

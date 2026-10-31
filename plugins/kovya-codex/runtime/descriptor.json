@@ -1,0 +1,212 @@
+{
+  "version": "1.0.9",
+  "files": [
+    {
+      "path": "connector/claude-code/client/kovya-managed-process-streams.mjs",
+      "sha256": "730394a107d1ad1aa6377431f63bd0deaef364b42ed4fc58bdc338070dec7f99"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-managed-process.mjs",
+      "sha256": "47e7e771a4eb04b02fb5374ccd5cf9d7614de882a788baf9bffdcc5e4c51f3d2"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-memory-client.mjs",
+      "sha256": "ba542bd12fd09fe087a72adaa326221207ce2f1a2cf71c249901b31c0a1e3cb1"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-native-binding.generated.mjs",
+      "sha256": "789e05717527ace88918c53febbb5435446f69d96c5ee312577b6a186b19c174"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-native-binding.mjs",
+      "sha256": "0ee9698debb6fbeb3591af79067a2f5411b2fea6d860306b40a1c1d33dbecc32"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-package-binding.generated.mjs",
+      "sha256": "9cecd31fb83960b1b73392aedc0eb9e1fc97d97843d246ff484d751dba440579"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-phase-authority.mjs",
+      "sha256": "269dade969a696a62e66cc591679d2aad02dd2b7533cb28e17e770f83977b0b7"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-profile-binding.generated.mjs",
+      "sha256": "05c768ee97c61f0c1e98abccbdd80cace5468f98fa2c6d21590aa010593d10a9"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-profile-entry.mjs",
+      "sha256": "d9d0279153ced25e33ba55f3015608d1217b91235b4896899cdf25f0406573c4"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-profile-process.mjs",
+      "sha256": "5abea705f43504b7b64f50ba82753c859372cb8c5253087b0c9965c3ac5074c9"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-windows-broker-client.mjs",
+      "sha256": "8ce6852b9218dd9a9b74c09223d753e487f837b48e27089f7ccaa0a150663bed"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-windows-broker-native.mjs",
+      "sha256": "af7fe46980eff340bff6e6bc04908d4208c9b3e5f1f8f323a834dd373d9c0b57"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-windows-broker.mjs",
+      "sha256": "951f36f4a1216382f1692891c6c840293845b2842292095db7ab33086828deb3"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-windows-browser-auth.mjs",
+      "sha256": "e6a4e43274e5eab94d4fbb6ae58441029faee171b0a6e34a910d58ebb185162c"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-windows-device-auth.mjs",
+      "sha256": "8a158b43a38905928cf2020e03008f09fda395f328f07151e5a2c8b97bdfb66b"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-windows-readiness-evidence.mjs",
+      "sha256": "7403240ed4a76f6016e9e5050ea4b7c78e0cc2153ec1a02c4f0a154cc1cf067a"
+    },
+    {
+      "path": "connector/claude-code/client/kovya_profile_startup.node",
+      "sha256": "2a163c8f0858201e03ad0ef1ac9a0eea538836a9030ba3a42ff8bfcf028c70f6"
+    },
+    {
+      "path": "connector/claude-code/client/kovya_windows_broker_native.cs",
+      "sha256": "56b03f5d9c34b7fd916fb3bd73421c38f881354e35bb8d254a77d26a764cf735"
+    },
+    {
+      "path": "connector/claude-code/client/kovya_windows_broker_native.exe",
+      "sha256": "ccbc0a70e08b690297b8f8096599d2bb726e39be4286cbb9e23671a970091a51"
+    },
+    {
+      "path": "connector/claude-code/client/kovya_windows_broker_pipe_acl.ps1",
+      "sha256": "a8b4253ce268ba34a45cab920334f9339dad0a51d9e66616f74ede3be316ce1c"
+    },
+    {
+      "path": "connector/claude-code/hooks/lib/kovya_hook_common.mjs",
+      "sha256": "d04b7e8c3e0cb533bafae223ca82d94dc285b9c54bab45f74435dda6c33cfe37"
+    },
+    {
+      "path": "connector/kovya-memory-wire-contract.mjs",
+      "sha256": "f0e79988754ece128de250a2db91dcac16dea98f65731553117ea7c1c34452aa"
+    },
+    {
+      "path": "connector/omp/extension.mjs",
+      "sha256": "ffca2b35f925248df48afb073dddeaca5fb9ffd6ff68963ed73fa042b0b50783"
+    },
+    {
+      "path": "connector/plugin/broker-start.mjs",
+      "sha256": "b1fd366a73252bed8485725612996c0fa9e8ee9fd2d49be2c196044dc7120592"
+    },
+    {
+      "path": "connector/plugin/diagnose.mjs",
+      "sha256": "bdb4f41f8223288e65e3d71c5139d144ca7113526a0fb54b08cf5ae9c54f8de2"
+    },
+    {
+      "path": "connector/plugin/diagnostic-events.mjs",
+      "sha256": "6e3074c3085dc704844cc66776a099a12fdd5594b7b7c2aca9bd99d14edee2d2"
+    },
+    {
+      "path": "connector/plugin/diagnostic-lifecycle.mjs",
+      "sha256": "c3c49431ffb653b2fb5f60820f71592b13841b63426b47923d47041b0a47b858"
+    },
+    {
+      "path": "connector/plugin/diagnostic-sink.mjs",
+      "sha256": "c0dad9d7eb866a075a88f46e62cf1371759a33443b7ce05799f612520bc4cb5f"
+    },
+    {
+      "path": "connector/plugin/dispatch.mjs",
+      "sha256": "4792ef8b5148f72829fa4135558c791f006e38f6a1d62d7dbb5c1127d32fb043"
+    },
+    {
+      "path": "connector/plugin/host-events.mjs",
+      "sha256": "8e90086947f724ea726cf07d46ca8cacf2dfb075ed2a7a52adbc8f6adc44444f"
+    },
+    {
+      "path": "connector/plugin/layout.mjs",
+      "sha256": "36ca28408313b736e13c0c86c5d2ee073ac0fe93b7e7cbdc8936fc6c8042d754"
+    },
+    {
+      "path": "connector/plugin/mcp.mjs",
+      "sha256": "5bb1c48191d3cda6b64f43cc54a984bba0d16294fd81b465d74bbc813ec451f9"
+    },
+    {
+      "path": "connector/plugin/memory-http-observations.mjs",
+      "sha256": "7cfed10e7e4869a2c45d328d567973ad6456f17d09bd85305033d2393700ec53"
+    },
+    {
+      "path": "connector/plugin/msix-contract.mjs",
+      "sha256": "35ca20eeb77ee1310f0277dd574bcfef3ba741780eb58401db6120ee08562297"
+    },
+    {
+      "path": "connector/plugin/onboarding.mjs",
+      "sha256": "dd66033ade2e293bf0faf253d4d56f91718d6e0115b4b04b00f9e0b094b79dc2"
+    },
+    {
+      "path": "connector/plugin/phase-audit.mjs",
+      "sha256": "03bba41df6cdc836f8b72542c7bcc6889ea0dfa4666a29a65b6c5deb8279e9c6"
+    },
+    {
+      "path": "connector/plugin/release-config.json",
+      "sha256": "ac6f509fe43ea91268ae079e8e83217cc21cbebae72d32f3f87e9d5936eef321"
+    },
+    {
+      "path": "connector/plugin/request-budget.mjs",
+      "sha256": "df7d3ca46579159430df68887b6e2ffc252bc07b8b98e4a614f805c0b1f85f1c"
+    },
+    {
+      "path": "connector/plugin/resident-broker.mjs",
+      "sha256": "09e07e7d8b165060739babb3aa5345ce61cdae66d85b3b9ff310eac137cfc526"
+    },
+    {
+      "path": "connector/plugin/runtime-requirement.mjs",
+      "sha256": "67f6f700a3520db4bb4a53ee1f9763fee2c32d3ffd604b33c4492972a693cb3b"
+    },
+    {
+      "path": "connector/plugin/setup.mjs",
+      "sha256": "668201c02fceda0b218df549695e82dce8810131f6721a562ebc8108cf0abdf8"
+    },
+    {
+      "path": "connector/plugin/shared-runtime.mjs",
+      "sha256": "a6e150ebffe2762876aa9e28b9b83541c50aa3d7308cdb6286afa5ef3784ab7c"
+    },
+    {
+      "path": "connector/plugin/terminal-operation.mjs",
+      "sha256": "5b3e68410c0685b071fe60295959b26d74818158ef2bf15a78e1bb140e04e97c"
+    },
+    {
+      "path": "connector/plugin/terminal-record.mjs",
+      "sha256": "6223aa9c515420936168772e02fe83c41254c5e98a12691b6b343a5e5466126f"
+    },
+    {
+      "path": "connector/plugin/turn-join.mjs",
+      "sha256": "9ea6e21748d72a7fe2318578c60fb9ed6ac7b57ddb7f228f7b852817393c02ea"
+    },
+    {
+      "path": "connector/plugin/worker.mjs",
+      "sha256": "44848f10522b8398dfc2b48a0f6b2de7bd42f5e39380994508530ec154267128"
+    },
+    {
+      "path": "packages/memory-gateway/src/canonical-json.mjs",
+      "sha256": "ae7c38b91e1c6d75b14b576c4f4ad2cf93636fdc4ca265716c0ed2b1178fa547"
+    },
+    {
+      "path": "packages/memory-gateway/src/recovery-wire.mjs",
+      "sha256": "503b498c30490fec87b7cc308e332ed9171af1dbab55bf9923faea96a5b2e1db"
+    },
+    {
+      "path": "runtime/kovya-runtime.json",
+      "sha256": "914121d7bae39fe814736f1f859916dc3228af4d7eba646b3e20fd1406ff14d4"
+    },
+    {
+      "path": "runtime/node/node.exe",
+      "sha256": "63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088"
+    }
+  ],
+  "entrypoints": {
+    "node": "runtime/node/node.exe",
+    "broker": "connector/plugin/resident-broker.mjs",
+    "native": "connector/claude-code/client/kovya_windows_broker_native.exe",
+    "client": "connector/claude-code/client/kovya-memory-client.mjs"
+  },
+  "digest": "2dfe8082b4dcb618babe1e6ccfb67b06613d2d6a046636828834184ad6f621d4"
+}

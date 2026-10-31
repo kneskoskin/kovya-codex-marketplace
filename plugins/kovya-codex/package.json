@@ -1,0 +1,9 @@
+{
+  "name": "kovya-codex",
+  "version": "0.1.0-preview.10.3",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  }
+}
