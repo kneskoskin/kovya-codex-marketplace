@@ -43,7 +43,7 @@ async function main() {
     return {ok:report.available,...report};
   }
   if(command!=="setup" || !["codex","claude_code"].includes(host)
-      || !["connect","finish","status","repair","logout"].includes(operation) || extra.length)
+      || !["connect","finish","status","repair","logout"].includes(operation) || extra.length&&!(operation==="repair"&&extra.length===1&&extra[0]==="--consented-local-repair-stdin"))
     return {ok:false,state:"arguments_invalid",message:"Use kovya setup <codex|claude_code> <connect|finish|status|repair|logout>."};
   if(process.platform!=="win32")return {ok:false,state:"platform_unavailable",message:"This package supports Windows only."};
   if(layout.kind==="selected_plugin"&&host!==layout.host)return fail("runtime_setup_host_mismatch");
@@ -53,7 +53,7 @@ async function main() {
   const {loadRuntimeRequirement}=await load("connector/plugin/runtime-requirement.mjs");
   const {createSharedRuntime}=await load("connector/plugin/shared-runtime.mjs");
   const {createNativeRuntimeAdmission}=await load("connector/plugin/native-admission.mjs");
-  const {delegatePackageSetup}=await load("connector/plugin/setup.mjs");
+  const {delegatePackageSetup,readLocalRepairFrame}=await load("connector/plugin/setup.mjs");
   const requested=loadRuntimeRequirement();
   if(!requested)return fail("runtime_configuration_required");
   const {home}=resolvePluginLayout({packageRoot:root,env:process.env});
@@ -72,6 +72,12 @@ async function main() {
     return {ok:true,state:"signed_out",account:"signed_out",runtime:"not_installed",
       saving:"unverified",recall:"unverified",remote_revocation:"not_applicable",
       message:"Kovya is already signed out. No shared runtime is installed at this location."};
+  if(operation==="repair"&&extra.length){
+    const frame=await readLocalRepairFrame({host});
+    if(resolved.state!=="runtime_admitted")return fail(resolved.reason??resolved.state);
+    process.exitCode=await delegatePackageSetup(host,operation,{inputFrame:frame});
+    return null;
+  }
   const servicing=operation==="repair";
   if(servicing||["never_started","runtime_missing"].includes(resolved.state)) {
     if(!["connect","repair"].includes(operation))

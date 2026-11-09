@@ -20,6 +20,7 @@ const MAX_JSON_BYTES = 32 * 1024;
 const MAX_CALLBACK_BYTES = 2048;
 const MANUAL_START_SERVER_TTL_MS = 300_000;
 const MANUAL_START_CLOCK_SKEW_MS = 5_000;
+const automaticPolicies=new WeakMap(),automaticAdmissions=new WeakMap(),automaticPreparations=new WeakMap();
 
 export function createWindowsBrowserAuthorizationTransport({ apiBaseUrl, fetchImpl = globalThis.fetch, timeoutMs = 10_000 } = {}) {
   const origin = httpsOrigin(apiBaseUrl);
@@ -37,12 +38,12 @@ export function createWindowsBrowserAuthorizationTransport({ apiBaseUrl, fetchIm
       throw browserError("request_refused");
     }
     const clock=attemptHint===null?{}:diagnosticHintClock(attemptHint);
-    const budget = authentication?30000:remainingMs ? Math.floor(Math.min(timeoutMs, remainingMs())) : timeoutMs;
+    const budget = authentication?Math.floor(Math.min(30000,remainingMs?remainingMs():30000)):remainingMs ? Math.floor(Math.min(timeoutMs, remainingMs())) : timeoutMs;
     if (!Number.isFinite(budget) || budget < 1) throw browserError("deadline_expired", true);
     const until=started+budget,controller=new AbortController();let timer,expiry;
     const deadlineError=()=>{
       if(!expiry){expiry=browserError(authentication?"authentication_deadline_refused":"remote_ambiguous",true);
-        if(authentication)noteAuthenticationDeadline(expiry,{scope:"authentication",consumer:route===START_PATH?"authorization_request":"token_exchange",elapsed_ms:Math.max(0,performance.now()-started),budget_ms:30000});}
+        if(authentication)noteAuthenticationDeadline(expiry,{scope:"authentication",consumer:route===START_PATH?"authorization_request":"token_exchange",elapsed_ms:Math.max(0,performance.now()-started),budget_ms:budget});}
       return expiry;
     };
     const check=()=>{if(expiry||performance.now()>=until)throw deadlineError();remainingMs?.();};
@@ -88,10 +89,10 @@ export function createWindowsBrowserLauncher({ spawnImpl = spawn } = {}) {
   });
 }
 
-export async function createWindowsLoopbackReceiver({ expectedState, timeoutMs = 120_000 } = {}) {
+export async function createWindowsLoopbackReceiver({ expectedState, timeoutMs = 120_000, automatic = false } = {}) {
   const state = opaque(expectedState, "state");
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000) throw browserError("timeout_invalid");
-  let settled = false;
+  let settled = false,armedPolicy=null;
   let resolveResult;
   let rejectResult;
   let expectedHost = null;
@@ -119,10 +120,17 @@ export async function createWindowsLoopbackReceiver({ expectedState, timeoutMs =
       const code = opaque(parsed.searchParams.get("code"), "code");
       const returnedState = opaque(parsed.searchParams.get("state"), "state");
       if (!same(returnedState, state)) throw browserError("state_mismatch");
+      let admission;
+      if(automatic){
+        const p=automaticPolicies.get(armedPolicy);
+        if(!p||!p.active||!Number.isFinite(p.now())||performance.now()>=p.pageMono||p.now()>=p.pageAt)throw browserError("callback_timeout");
+        admission=Object.freeze({});
+        const record={...p,codeHash:createHash("sha256").update(code).digest("hex"),admittedMono:performance.now(),stage:"callback_admitted"};Object.defineProperty(record,"active",{get:()=>p.active});automaticAdmissions.set(admission,record);
+      }
       settled = true;
       fixedResponse(response, 200, "Kovya authorization received. You may close this window.");
       server.close();
-      resolveResult(Object.freeze({ code }));
+      resolveResult(Object.freeze({ code,...(admission?{admission}:{}) }));
     } catch (error) {
       settled = true;
       fixedResponse(response, 400, "Kovya authorization was refused. Return to the installer and try again.");
@@ -142,7 +150,7 @@ export async function createWindowsLoopbackReceiver({ expectedState, timeoutMs =
     server.close(); throw browserError("listener_bind_failed");
   }
   expectedHost = `127.0.0.1:${address.port}`;
-  const timer = setTimeout(() => {
+  let timer = setTimeout(() => {
     if (!settled) { settled = true; server.close(); rejectResult(browserError("callback_timeout")); }
   }, timeoutMs);
   timer.unref?.();
@@ -150,7 +158,14 @@ export async function createWindowsLoopbackReceiver({ expectedState, timeoutMs =
   return Object.freeze({
     redirectUri: `http://127.0.0.1:${address.port}${WINDOWS_BROWSER_AUTH_CALLBACK_PATH}`,
     result,
+    arm(token){
+      const p=automaticPolicies.get(token);
+      if(!automatic||armedPolicy||settled||!p||!p.active||p.stateHash!==createHash("sha256").update(state).digest("hex")
+        ||p.redirect!=="http://127.0.0.1:"+address.port+WINDOWS_BROWSER_AUTH_CALLBACK_PATH||p.now()>=p.pageAt||performance.now()>=p.pageMono)throw browserError("callback_refused");
+      armedPolicy=token;clearTimeout(timer);timer=setTimeout(()=>{if(!settled){settled=true;server.close();rejectResult(browserError("callback_timeout"));}},Math.max(0,p.pageMono-performance.now()));timer.unref?.();
+    },
     close() {
+      const p=automaticPolicies.get(armedPolicy);if(p)p.active=false;
       if (!settled) { settled = true; server.close(); rejectResult(browserError("callback_cancelled")); }
     }
   });
@@ -178,9 +193,15 @@ export function createWindowsBrowserAuthorizationClient({
   const manifestPath=path.join(path.dirname(path.dirname(path.dirname(statePath))),"windows-device-auth.json");
   if(path.resolve(statePath)!==path.join(path.dirname(manifestPath),"state","device-auth","browser-pending.json"))throw browserError("state_path_refused");
   credentialBridge=guardWindowsAuthCredentialBridge(credentialBridge,manifestPath);
+  const activeAdmissions=new Set();
   const owned=operation=>(...args)=>withWindowsAuthState(manifestPath,pinnedAuthorizationOrigin,()=>operation(...args),{installationLockHeld,accountStateProvider});
   return Object.freeze({begin:owned(begin),resumeManual:owned(resumeManual),commit:owned(clearPending),rollback:owned(clearPending),clearPending:owned(clearPending),inspect:()=>observeWindowsAuthState(inspect),
-    requestAutomaticStart:(body,options)=>transport.start(body,options),requestAutomaticExchange:(body,options)=>transport.exchange(body,options),
+    requestAutomaticStart:(body,options={})=>{
+      const p=automaticPreparations.get(body);
+      if(p){if(p.dispatched||!Number.isFinite(Date.parse(now()))||p.utc-Date.parse(now())<=0||p.mono-performance.now()<=0)throw browserError("start_expiry_invalid");p.dispatched=true;
+        return transport.start(body,{...options,remainingMs:()=>Math.min(p.utc-Date.parse(now()),p.mono-performance.now())});}
+      return transport.start(body,options);
+    },requestAutomaticExchange,
     prepareAutomatic:owned(prepareAutomatic),openAutomaticReceiver,acceptAutomaticStart:owned(acceptAutomaticStart),
     prepareAutomaticExchange:owned(prepareAutomaticExchange),acceptAutomaticResult:owned(acceptAutomaticResult),
     prepareManual:owned(prepareManual),acceptManualStart:owned(acceptManualStart),manualPending:owned(manualPending),
@@ -191,7 +212,12 @@ export function createWindowsBrowserAuthorizationClient({
   // Profile requests own their short local phases; these methods never launch
   // a browser/listener or wait for a person. HTTP is deliberately unwrapped.
   async function prepareManual(input) { return prepareAuthorization(input); }
-  async function prepareAutomatic(input) { return prepareAuthorization(input,"loopback_with_manual_fallback"); }
+  async function prepareAutomatic(input) {
+    const body=await prepareAuthorization(input,"loopback_with_manual_fallback"),p=input.preparation;
+    if(p){const utc=Date.parse(p.start_deadline_at);if(!Number.isFinite(utc)||!Number.isFinite(p.deadline_mono)||utc<=Date.parse(now())||p.deadline_mono<=performance.now()||p.deadline_mono-performance.now()>35000)throw browserError("start_expiry_invalid");
+      automaticPreparations.set(body,{utc,mono:p.deadline_mono,dispatched:false});}
+    return body;
+  }
   async function prepareAuthorization({requestId,devicePublicKeyPem,deviceLabel},deliveryMode="manual_code") {
     bindDiagnosticAttempt(requestId);
     if (readJournal(statePath,pinnedAuthorizationOrigin)) throw browserError("transaction_pending");
@@ -204,24 +230,37 @@ export function createWindowsBrowserAuthorizationClient({
   }
 
   async function acceptManualStart(...args) { return acceptAuthorizationStart(...args); }
-  async function acceptAutomaticStart(...args) { return acceptAuthorizationStart(...args,true); }
-  async function acceptAuthorizationStart(body,started,createdAt,recoveryExpiresAt,automatic=false) {
+  async function acceptAutomaticStart(body,started,createdAt,recoveryExpiresAt,options={}) { return acceptAuthorizationStart(body,started,createdAt,recoveryExpiresAt,true,options); }
+  async function acceptAuthorizationStart(body,started,createdAt,recoveryExpiresAt,automatic=false,options={}) {
     validateManualStartTypes(started);
     if(started.ok!==true||started.display.product!=="Kovya"||started.display.platform!=="windows"||started.display.device_label!==body.device_label)
       throw browserError("start_response_invalid");
     // Observe the remote lifetime at acceptance, not at the earlier Work A.
     // Permit at most 5 seconds of positive clock skew; this never extends the
     // original local completion deadline. Larger skew requires a classified retry.
-    const accepted=Date.parse(now()),server=Date.parse(started.expires_at),recovery=Date.parse(recoveryExpiresAt);
+    const accepted=Date.parse(now()),acceptedMono=performance.now(),server=Date.parse(started.expires_at),recovery=Date.parse(recoveryExpiresAt);
     if(!Number.isFinite(accepted)||!Number.isFinite(server)||server<=accepted||server-accepted>MANUAL_START_SERVER_TTL_MS+MANUAL_START_CLOCK_SKEW_MS
       ||!Number.isFinite(recovery)||recovery<=accepted)throw browserError("start_expiry_invalid");
+    let timing;
+    if(automatic&&options.timing){
+      if(!automaticPreparations.get(body)?.dispatched||performance.now()>=automaticPreparations.get(body).mono||accepted>Date.parse(options.timing.start_deadline_at)||options.timing.accepted_at!==null)throw browserError("start_expiry_invalid");
+      timing={...options.timing,accepted_at:new Date(accepted).toISOString(),page_expires_at:new Date(server).toISOString()};
+    }
     const journal=validateJournal({schema_version:WINDOWS_BROWSER_AUTH_JOURNAL_SCHEMA,transaction_id:started.transaction_id,
-      authorization_url:started.authorization_url,expires_at:new Date(Math.min(server,recovery)).toISOString(),request_id:body.request_id,redirect_uri:automatic?loopbackUri(body.redirect_uri):null,...(automatic?{}:{delivery_mode:"manual_code"}),
+      authorization_url:started.authorization_url,expires_at:new Date(timing?server:Math.min(server,recovery)).toISOString(),...(timing?{automatic_timing:timing}:{}),request_id:body.request_id,redirect_uri:automatic?loopbackUri(body.redirect_uri):null,...(automatic?{}:{delivery_mode:"manual_code"}),
       device_public_key_pem:body.device_public_key_pem,device_label:body.device_label,
       secret_target:`${WINDOWS_BROWSER_AUTH_SECRET_PREFIX}${createHash("sha256").update(body.request_id).digest("hex")}`,created_at:createdAt},pinnedAuthorizationOrigin);
     bindDiagnosticAttempt(body.request_id,{created_at:journal.created_at,expires_at:journal.expires_at});
+    if(timing){if(typeof options.beforePublish!=="function")throw browserError("start_response_invalid");options.beforePublish(timing);}
     try{writeAtomic(statePath,journal);}catch(error){throw classifyDiagnosticError(error,"state_write_failed");}
-    return automatic?{authorization_url:journal.authorization_url,expires_at:journal.expires_at}:manualPending(body.request_id);
+    let policy;
+    if(timing){
+      policy=Object.freeze({});const mono=acceptedMono,pageAt=Date.parse(timing.page_expires_at);
+      automaticPolicies.set(policy,{active:true,request:body.request_id,origin:pinnedAuthorizationOrigin,keyHash:createHash("sha256").update(body.device_public_key_pem).digest("hex"),
+        stateHash:createHash("sha256").update(body.state).digest("hex"),pkce:body.pkce_challenge,nonce:body.consent_nonce_hash,redirect:body.redirect_uri,
+        pageAt,completionAt:pageAt+35000,pageMono:mono+pageAt-accepted,completionMono:mono+pageAt-accepted+35000,timing,now:()=>Date.parse(now())});
+    }
+    return automatic?{authorization_url:journal.authorization_url,expires_at:journal.expires_at,...(policy?{policy}:{})}:manualPending(body.request_id);
   }
 
   function manualPending(requestId) {
@@ -267,44 +306,76 @@ export function createWindowsBrowserAuthorizationClient({
 
 
   // Listener/browser waiting never holds an account lease or native Work.
-  async function openAutomaticReceiver(body) {
+  async function openAutomaticReceiver(body,{timing=null}={}) {
     const expectedState=body.state;
-    const receiver=await loopbackFactory({expectedState,timeoutMs:callbackTimeoutMs});
+    if(timing){const p=automaticPreparations.get(body),utc=Date.parse(timing.start_deadline_at),remaining=Math.min(utc-Date.parse(now()),p?.mono-performance.now());if(!p||p.utc!==utc||!Number.isFinite(remaining)||remaining<=0||remaining>35000)throw browserError("start_expiry_invalid");}
+    const receiver=await loopbackFactory({expectedState,timeoutMs:timing?Math.max(1,Math.min(35000,Date.parse(timing.start_deadline_at)-Date.parse(now()))):callbackTimeoutMs,automatic:!!timing});
     // A receiver can reject before the orchestrator reaches its wait.
     receiver.result.catch(()=>{});
     // The receiver validates returned state and exposes only {code}. Carry the
     // captured expectation after its successful validation, not an observed state.
     const validated=receiver.result.then(value=>{
-      exactKeys(value,["code"]);return {code:opaque(value.code,"code"),expected_state:expectedState};
+      exactKeys(value,timing?["code","admission"]:["code"]);
+      if(timing&&!automaticAdmissions.has(value.admission))throw browserError("callback_refused");
+      return {code:opaque(value.code,"code"),expected_state:expectedState,...(timing?{admission:value.admission}:{})};
     });validated.catch(()=>{});
     try { return {redirectUri:loopbackUri(receiver.redirectUri),result:validated,
-      open:url=>browserLauncher.open(url),close:()=>receiver.close()}; }
+      arm:token=>{if(timing)receiver.arm(token);},open:url=>browserLauncher.open(url),close:()=>{receiver.close();for(const token of activeAdmissions){const p=automaticAdmissions.get(token);if(p)p.stage="closed";}activeAdmissions.clear();}}; }
     catch(error){receiver.close();throw error;}
   }
-  function automaticJournal(requestId,binding) {
+  function admissionRecord(token,requestId,binding,stage){
+    const p=automaticAdmissions.get(token);
+    if(!p||!p.active||!Number.isFinite(Date.parse(now()))||p.stage!==stage||p.request!==requestId||p.origin!==pinnedAuthorizationOrigin||p.stateHash!==binding?.state_sha256
+      ||p.pkce!==binding.pkce_challenge||p.nonce!==binding.consent_nonce_hash||p.redirect!==binding.redirect_uri
+      ||p.admittedMono>=p.pageMono||performance.now()>=p.completionMono||Date.parse(now())>=p.completionAt)throw browserError("transaction_missing_or_expired");
+    return p;
+  }
+  async function requestAutomaticExchange(body,options={}){
+    if(options.admission){
+      const owner=readWindowsAuthDocument(path.join(path.dirname(statePath),"pending.json"),x=>x);
+      const p=admissionRecord(options.admission,body.request_id,owner?.automatic_binding,"exchange_prepared");
+      if(owner?.phase!=="remote_ambiguous"||body.redirect_uri!==p.redirect||createHash("sha256").update(body.device_public_key_pem).digest("hex")!==p.keyHash||createHash("sha256").update(body.pkce_verifier).digest("base64url")!==p.pkce||"sha256:"+createHash("sha256").update(body.consent_nonce).digest("hex")!==p.nonce||createHash("sha256").update(body.code).digest("hex")!==p.codeHash)throw browserError("pending_code_mismatch");
+      p.stage="exchange_dispatched";
+      try{return await transport.exchange(body,{...options,remainingMs:()=>Math.min(p.completionMono-performance.now(),p.completionAt-Date.parse(now()))});}
+      catch(error){p.stage="failed";throw error;}
+    }
+    return transport.exchange(body,options);
+  }
+  function automaticJournal(requestId,binding,admission=null,stage=null) {
     const journal=readJournal(statePath,pinnedAuthorizationOrigin);
-    if(!journal||journal.delivery_mode!==undefined||journal.request_id!==requestId||Date.parse(now())>=Date.parse(journal.expires_at)
-      ||!binding||journal.redirect_uri!==binding.redirect_uri)throw browserError("transaction_missing_or_expired");
+    if(!journal||journal.delivery_mode!==undefined||journal.request_id!==requestId||!binding||journal.redirect_uri!==binding.redirect_uri)throw browserError("transaction_missing_or_expired");
+    const owner=readWindowsAuthDocument(path.join(path.dirname(statePath),"pending.json"),x=>x);
+    if(owner?.phase==="automatic_retiring"||owner?.request?.request_id!==requestId)throw browserError("transaction_missing_or_expired");
+    if(journal.automatic_timing){
+      const p=admissionRecord(admission,requestId,binding,stage);
+      if(p.keyHash!==createHash("sha256").update(journal.device_public_key_pem).digest("hex")||stableJson(owner.automatic_timing)!==stableJson(journal.automatic_timing)
+        ||stableJson(p.timing)!==stableJson(journal.automatic_timing))throw browserError("pending_secret_changed");
+    }else if(admission||Date.parse(now())>=Date.parse(journal.expires_at))throw browserError("transaction_missing_or_expired");
     return journal;
   }
   async function prepareAutomaticExchange(requestId,callback,binding) {
-    const journal=automaticJournal(requestId,binding),pending=await readProtectedPending(journal);
+    const journal=automaticJournal(requestId,binding,callback?.admission,"callback_admitted"),pending=await readProtectedPending(journal);
     try {
       if(binding.pkce_challenge!==createHash("sha256").update(opaque(pending.pkce_verifier,"pkce_verifier")).digest("base64url")
         ||binding.consent_nonce_hash!==`sha256:${createHash("sha256").update(opaque(pending.consent_nonce,"consent_nonce")).digest("hex")}`
         ||binding.state_sha256!==createHash("sha256").update(opaque(pending.state,"state")).digest("hex")
         ||!callback||typeof callback.expected_state!=="string"||!same(pending.state,callback.expected_state))throw browserError("callback_refused");
       const code=opaque(callback.code,"code");
+      const admitted=journal.automatic_timing?admissionRecord(callback.admission,requestId,binding,"callback_admitted"):null;
+      if(admitted){if(createHash("sha256").update(code).digest("hex")!==admitted.codeHash)throw browserError("pending_code_mismatch");admitted.stage="preparing";activeAdmissions.add(callback.admission);}
       if(pending.exchange_code&&!same(pending.exchange_code,code))throw browserError("pending_code_mismatch");
       if(pending.exchange_result)return {result:pending.exchange_result};
       await stageExchangeCode(journal,code);
-      return {attemptHint:new URL(journal.authorization_url).searchParams.get("attempt"),body:{transaction_id:journal.transaction_id,
+      if(admitted)admitted.stage="exchange_prepared";
+      return {...(admitted?{admission:callback.admission}:{}),attemptHint:new URL(journal.authorization_url).searchParams.get("attempt"),body:{transaction_id:journal.transaction_id,
         code,pkce_verifier:opaque(pending.pkce_verifier,"pkce_verifier"),request_id:journal.request_id,redirect_uri:journal.redirect_uri,
         consent_nonce:opaque(pending.consent_nonce,"consent_nonce"),device_public_key_pem:journal.device_public_key_pem}};
     } finally {pending.pkce_verifier=null;pending.consent_nonce=null;pending.state=null;pending.exchange_code=null;pending.exchange_result=null;}
   }
-  async function acceptAutomaticResult(requestId,result,binding) {
-    const journal=automaticJournal(requestId,binding),pending=await readProtectedPending(journal);
+  async function acceptAutomaticResult(requestId,result,binding,admission=null) {
+    const journal=automaticJournal(requestId,binding,admission,"exchange_dispatched"),pending=await readProtectedPending(journal);
+    const admitted=journal.automatic_timing?admissionRecord(admission,requestId,binding,"exchange_dispatched"):null;
+    if(admitted){if(createHash("sha256").update(pending.exchange_code??"").digest("hex")!==admitted.codeHash)throw browserError("pending_code_mismatch");admitted.stage="accepting";}
     if(!pending.exchange_code)throw browserError("pending_code_mismatch");
     const bytes=Buffer.from(stableJson({...pending,exchange_result:result}),"utf8");
     try {
@@ -314,7 +385,7 @@ export function createWindowsBrowserAuthorizationClient({
         try {if(!readback||!sameBytes(readback,bytes))throw browserError("pending_secret_readback_failed");}finally{readback?.fill(0);}
       } catch(cause){rethrowInactiveWindowsAuthError(cause);throw browserError("result_stage_ambiguous",true,cause);}
     }
-    finally {bytes.fill(0);pending.pkce_verifier=null;pending.consent_nonce=null;pending.state=null;pending.exchange_code=null;pending.exchange_result=null;}
+    finally {if(admitted)admitted.stage="consumed";bytes.fill(0);pending.pkce_verifier=null;pending.consent_nonce=null;pending.state=null;pending.exchange_code=null;pending.exchange_result=null;}
   }
 
   function inspect() {
@@ -473,7 +544,13 @@ function validateJournal(value, expectedOrigin = null) {
   value.device_label = label(value.device_label);
   if (!value.secret_target?.startsWith(WINDOWS_BROWSER_AUTH_SECRET_PREFIX) || !/^Kovya\.DeviceAuth\/v1\/browser-pending\/[a-f0-9]{64}$/u.test(value.secret_target)) throw browserError("journal_invalid");
   const expires = Date.parse(value.expires_at); const created = Date.parse(value.created_at);
-  if (!Number.isFinite(expires) || !Number.isFinite(created) || expires <= created || expires - created > 300_000) throw browserError("journal_invalid");
+  if (!Number.isFinite(expires) || !Number.isFinite(created) || expires <= created) throw browserError("journal_invalid");
+  if(value.automatic_timing){
+    const t=value.automatic_timing,accepted=Date.parse(t.accepted_at);
+    if(value.delivery_mode!==undefined||Object.keys(t).sort().join(",")!=="accepted_at,page_expires_at,schema_version,start_deadline_at"
+      ||t.schema_version!=="kovya.automatic-timing.v1"||!Number.isFinite(accepted)||accepted<created||accepted>Date.parse(t.start_deadline_at)
+      ||t.page_expires_at!==value.expires_at||expires<=accepted||expires-accepted>305000)throw browserError("journal_invalid");
+  }else if(expires-created>300000)throw browserError("journal_invalid");
   return value;
 }
 

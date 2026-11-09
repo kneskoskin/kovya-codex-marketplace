@@ -1,5 +1,5 @@
 {
-  "version": "1.0.9",
+  "version": "1.0.10",
   "files": [
     {
       "path": "connector/claude-code/client/kovya-managed-process-streams.mjs",
@@ -55,11 +55,11 @@
     },
     {
       "path": "connector/claude-code/client/kovya-windows-browser-auth.mjs",
-      "sha256": "e6a4e43274e5eab94d4fbb6ae58441029faee171b0a6e34a910d58ebb185162c"
+      "sha256": "c0071f939c00486604c0ca448712a852cd8a9b744abf189372ac83d01948f84f"
     },
     {
       "path": "connector/claude-code/client/kovya-windows-device-auth.mjs",
-      "sha256": "8a158b43a38905928cf2020e03008f09fda395f328f07151e5a2c8b97bdfb66b"
+      "sha256": "1801bf11d029885ab66e3761019485a4843a04f8160d452b33a2412527e078bd"
     },
     {
       "path": "connector/claude-code/client/kovya-windows-readiness-evidence.mjs",
@@ -139,7 +139,7 @@
     },
     {
       "path": "connector/plugin/onboarding.mjs",
-      "sha256": "dd66033ade2e293bf0faf253d4d56f91718d6e0115b4b04b00f9e0b094b79dc2"
+      "sha256": "68e9dc2843039b259d3a2fb90dd564ed97f28cb2e64c1c8d6c3921b2d6c571cd"
     },
     {
       "path": "connector/plugin/phase-audit.mjs",
@@ -163,7 +163,7 @@
     },
     {
       "path": "connector/plugin/setup.mjs",
-      "sha256": "668201c02fceda0b218df549695e82dce8810131f6721a562ebc8108cf0abdf8"
+      "sha256": "b747c3664f22f0c710696b8ea46a290ee3f0c1378a4bcf19f30ce4bcef997202"
     },
     {
       "path": "connector/plugin/shared-runtime.mjs",
@@ -208,5 +208,5 @@
     "native": "connector/claude-code/client/kovya_windows_broker_native.exe",
     "client": "connector/claude-code/client/kovya-memory-client.mjs"
   },
-  "digest": "2dfe8082b4dcb618babe1e6ccfb67b06613d2d6a046636828834184ad6f621d4"
+  "digest": "13d9edf61f2c7d8f3c7723de195638d6429b73d5a52bfb5a72e504463cd773fb"
 }

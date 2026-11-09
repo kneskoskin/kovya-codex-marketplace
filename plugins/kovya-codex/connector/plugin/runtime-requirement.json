@@ -1,7 +1,7 @@
 {
   "schema_version": "kovya.plugin-runtime-requirement.v1",
-  "version": "1.0.9",
-  "minimum": "1.0.9",
-  "digest": "2dfe8082b4dcb618babe1e6ccfb67b06613d2d6a046636828834184ad6f621d4",
+  "version": "1.0.10",
+  "minimum": "1.0.10",
+  "digest": "13d9edf61f2c7d8f3c7723de195638d6429b73d5a52bfb5a72e504463cd773fb",
   "native_helper_sha256": "9ca94341e5d1d04cf4cd38cf03ce8192569255665827b2015334a8a7ab9a4e51"
 }

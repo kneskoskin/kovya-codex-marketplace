@@ -1,13 +1,15 @@
-# Kovya Windows preview 0.1.0-preview.10.3
+# Kovya Windows preview 0.1.0-preview.10.4
 
-Install Kovya through your host plugin marketplace, review its hook permissions, refresh the host session, then ask the setup skill: Connect Kovya.
+Install through the intended host plugin marketplace after this candidate is published and accepted for that host. Review hook permissions, refresh the host session, then ask the setup skill: Connect Kovya.
 
-Installation asks for no Kovya password, token or key. Sign-in happens on Connect in your browser using your own email and emailed code. Keep codes and credentials out of chat.
+Installation asks for no Kovya password, token or key. Connect opens the browser for your own email and emailed code. Keep codes and credentials out of chat.
 
-The current hosted download service is https://plugins.kovya.ai and currently serves the preceding preview.10.2. This cleaned preview.10.3 and its approved Git marketplace repository are prepared for publication; they are not claimed published by this candidate README.
+The accepted published baseline is preview.10.3. This preview.10.4 successor is prepared for review; these candidate bytes are not claimed published, installed or live. The intended official download location remains https://plugins.kovya.ai.
 
-The assistant diagnoses failures, explains them plainly and asks once: Would you like me to repair Kovya? Only your GO permits a repair attempt; the controller checks safety. Unknown/incomplete effects stop without blind replay. Existing expired automatic sign-in recovery remains a separate pending product fix.
+Automatic Connect waits follow the validated server page expiry with a bounded completion reserve. For an eligible expired automatic attempt the assistant explains the current result and asks once: Would you like me to repair Kovya? A GO permits the target-bound local repair and one fresh Connect continuation after checked cleanup. Failed, partial, lost or unknown output stops without blind replay or a second Connect. Old120-second journals are not renewed.
 
-Claude Code uses the hosted marketplace distribution after the new release is published. Codex includes its local marketplace catalogue and complete self-contained plugin; the remote Git/in-app installation still needs its actual host check. Native component qualification is reused; this does not certify live browser/account behavior or saving/recall. Runtime/minimum is1.0.9.
+This consented recovery does not provide full expiry-driven Automatic restart. Full Automatic restart remains a separate track required before outside testers. Internal-seat use additionally depends on G5 live and applicable G6 gates. This package makes no OMP-native acceptance claim.
 
-Compatibility: neutral aliases default/current/team and explicit tenant/namespace IDs are unchanged. Retired company-specific nicknames now receive the normal invalid-name refusal. Synthetic fixture provenance is labelled kovya-synthetic-fixture, with canonical server validation preserved.
+Claude Code uses the hosted archive marketplace after publication. Codex includes a local marketplace catalogue and complete self-contained plugin; remote Git/in-app installation needs its actual host check. Unchanged native component qualification is reused. This candidate does not certify live browser/account behavior, saving or recall. Runtime/minimum is1.0.10. Publication and installed-host acceptance remain separate.
+
+Compatibility: neutral aliases default/current/team and explicit tenant/namespace IDs remain unchanged. Retired company-specific nicknames receive the normal invalid-name refusal. Synthetic fixture provenance is labelled kovya-synthetic-fixture with canonical validation preserved.

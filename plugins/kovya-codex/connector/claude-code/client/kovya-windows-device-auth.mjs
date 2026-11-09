@@ -28,6 +28,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   statSync,
@@ -187,7 +188,7 @@ export function recordWindowsAuthDocument(targetPath, value) {
 
 export async function withWindowsAuthState(manifestPath, origin, work, {
   installationLockHeld = false, accountStateProvider = withKovyaWindowsAccountState,
-  credentialWitness = null, remainingMs = null
+  credentialWitness = null, remainingMs = null, failFast = false
 } = {}) {
   if (path.basename(manifestPath) !== "windows-device-auth.json") throw localError("Account manifest name is invalid.", "manifest_path_invalid");
   const home = path.dirname(manifestPath), key = stateKey(home), current = accountTransactions.getStore();
@@ -197,6 +198,7 @@ export async function withWindowsAuthState(manifestPath, origin, work, {
     if (!current.active || current.home !== key || current.origin !== origin) throw localError("Account transaction does not match.", "transaction_scope_invalid");
     return work();
   }
+  if(failFast && accountQueues.has(key))throw localError("Account repair is busy.","account_state_conflict");
   const previous = accountQueues.get(key) ?? Promise.resolve();
   let unlock;
   const pending = new Promise(resolve => {unlock=resolve;});
@@ -608,7 +610,7 @@ export function createWindowsDeviceAuthManager({
     journalPath,
 
 
-    async startProfileAutomatic({remainingMs,localPhase=null,observeNetwork=observeProfileWorkConsumer,deviceLabel="Kovya coding harness"}={}) {
+    async startProfileAutomatic({remainingMs,localPhase=null,observeNetwork=observeProfileWorkConsumer,deviceLabel="Kovya coding harness",host="codex"}={}) {
       const phase=(work,witness=null,name="local_preparation",network=null)=>{
         const execute=localRemaining=>{
           const run=()=>{if(network?.error)throw network.error;return finishStage("state_binding",()=>manualPhase(localRemaining,()=>work(localRemaining),witness,name));};
@@ -621,25 +623,34 @@ export function createWindowsDeviceAuthManager({
         const value=readJsonIfPresent(journalPath,validateJournal);
         if(!value?.profile_automatic||value.request.request_id!==prepared.journal.request.request_id
           ||stableJson(value.automatic_binding)!==stableJson(prepared.journal.automatic_binding))throw localError("Pending sign-in changed.","account_state_conflict");
+        if(!["prepared","remote_ambiguous"].includes(value.phase))throw localError("Pending sign-in is retiring.","account_state_conflict");
         assertJournalRecoveryFresh(value,now);return value;
       };
       try {
         prepared=await phase(async localRemaining=>{
           let values=documents.map(doc=>readWindowsAuthDocument(doc.path,doc.validate));
           if(await retireExpiredManual(values,localRemaining))values=documents.map(doc=>readWindowsAuthDocument(doc.path,doc.validate));
-          if(values[1]||values[2]||values[3]||values[4])return {terminal:{ok:false,outcome:"pending",...diagnosticRecovery(values[2])}};
+          if(values[1]||values[2]||values[3]||values[4]){
+            let repair_guidance;
+            if(values[2]?.profile_automatic)try{
+              const proof=await automaticRetirementProof(values,localRemaining,host);
+              repair_guidance={observation:"current_expired_automatic_connect",action:"ask_one_go",question:"Would you like me to repair Kovya?",eligibility:"native_current_proof_required",target:proof.target};
+            }catch(error){rethrowInactiveWindowsAuthError(error);}
+            return {terminal:{ok:false,outcome:"pending",...diagnosticRecovery(values[2]),...(repair_guidance?{repair_guidance}:{})}};
+          }
           if(values[0])return {terminal:{ok:true,outcome:"session_present",manifest:publicManifest(values[0])}};
           const keys=generateKeyPairSync("ed25519"),privateKey=Buffer.from(keys.privateKey.export({type:"pkcs8",format:"pem"}));
           const publicKeyPem=keys.publicKey.export({type:"spki",format:"pem"});
+          const preparationDeadlineMono=performance.now()+35000;
           const request=newRequest("browser_sign_in",audience??apiBaseUrl,now,random,{signing_public_key_pem:publicKeyPem,device_label:boundedLabel(deviceLabel)});
           bindDiagnosticAttempt(request.body.request_id);
           const target=pendingSigningTarget(request.body.request_id),secretTarget=`${WINDOWS_BROWSER_AUTH_SECRET_PREFIX}${digest(request.body.request_id)}`;
           let journal={...createJournal({operation:"browser_sign_in",request,pendingSigningTarget:target,now}),profile_automatic:true,
-            phase:"prepared",staged_targets:[target,secretTarget]};
+            phase:"prepared",staged_targets:[target,secretTarget],automatic_timing:{schema_version:"kovya.automatic-timing.v1",start_deadline_at:new Date(Date.parse(request.body.request_time)+35000).toISOString(),accepted_at:null,page_expires_at:null},recovery_expires_at:new Date(Date.parse(request.body.request_time)+35000).toISOString()};
           writeJsonAtomic(journalPath,journal);
           try {
             await writeAndVerifyCredential(bridge,target,privateKey,value=>validatePrivateKey(value,publicKeyPem),{compound:true});
-            const body=await browserAuthenticator.prepareAutomatic({requestId:request.body.request_id,devicePublicKeyPem:publicKeyPem,deviceLabel});
+            const body=await browserAuthenticator.prepareAutomatic({requestId:request.body.request_id,devicePublicKeyPem:publicKeyPem,deviceLabel,preparation:{start_deadline_at:journal.automatic_timing.start_deadline_at,deadline_mono:preparationDeadlineMono}});
             journal={...journal,automatic_binding:{pkce_challenge:body.pkce_challenge,consent_nonce_hash:body.consent_nonce_hash,state_sha256:digest(body.state),redirect_uri:null}};
             writeJsonAtomic(journalPath,journal);
             return {body,journal,witness:await captureWindowsAuthCredentialWitness({remainingMs:localRemaining})};
@@ -647,7 +658,7 @@ export function createWindowsDeviceAuthManager({
         });
         if(prepared.terminal)return prepared.terminal;
         // Each phase has completed checked native End before external effects/wait.
-        receiver=await browserAuthenticator.openAutomaticReceiver(prepared.body);
+        receiver=await browserAuthenticator.openAutomaticReceiver(prepared.body,{timing:prepared.journal.automatic_timing});
         prepared.body.redirect_uri=receiver.redirectUri;
         prepared=await phase(async localRemaining=>{
           const pending=current();
@@ -658,9 +669,13 @@ export function createWindowsDeviceAuthManager({
         const started=await captureDiagnosticNetwork("browser_start",()=>observeNetwork("authorization_request",()=>browserAuthenticator.requestAutomaticStart(prepared.body,{authentication:!!localPhase,remainingMs:localPhase?null:remainingMs})));
         const accepted=await phase(async localRemaining=>{
           const pending=current();
-          const info=await browserAuthenticator.acceptAutomaticStart(prepared.body,started.value,pending.created_at,pending.recovery_expires_at);
+          const info=await browserAuthenticator.acceptAutomaticStart(prepared.body,started.value,pending.created_at,pending.recovery_expires_at,{timing:pending.automatic_timing,beforePublish:timing=>{
+            const next={...pending,automatic_timing:timing,recovery_expires_at:new Date(Date.parse(timing.page_expires_at)+35000).toISOString()};
+            writeJsonAtomic(journalPath,next);prepared.journal=next;
+          }});
           return {...info,witness:await captureWindowsAuthCredentialWitness({remainingMs:localRemaining})};
         },prepared.witness,"local_acceptance",started);
+        receiver.arm(accepted.policy);
         await receiver.open(accepted.authorization_url);
         let callback;
         try {callback=await receiver.result;}
@@ -673,14 +688,14 @@ export function createWindowsDeviceAuthManager({
           const value=await browserAuthenticator.prepareAutomaticExchange(pending.request.request_id,callback,pending.automatic_binding);
           return {...value,witness:await captureWindowsAuthCredentialWitness({remainingMs:localRemaining})};
         },accepted.witness);
-        const network=exchange.result?null:await captureDiagnosticNetwork("browser_exchange",()=>observeNetwork("authorization_request",()=>browserAuthenticator.requestAutomaticExchange(exchange.body,{authentication:!!localPhase,remainingMs:localPhase?null:remainingMs,attemptHint:exchange.attemptHint??null})));
+        const network=exchange.result?null:await captureDiagnosticNetwork("browser_exchange",()=>observeNetwork("authorization_request",()=>browserAuthenticator.requestAutomaticExchange(exchange.body,{authentication:!!localPhase,remainingMs:localPhase?null:remainingMs,attemptHint:exchange.attemptHint??null,admission:exchange.admission})));
         const result=exchange.result??network.value;
         return await phase(async()=>{
           const pending=current();
           validateManualExchangeTypes(result);validateAuthResult(result,"browser_sign_in");validateAuthorityResult(result,validatedServiceOrigin(apiBaseUrl));
           if(audience!=null&&validatedAudience(audience)!==apiBaseUrl)throw localError("Authority mismatch.","authority_mismatch");
           if(Object.hasOwn(result,"memory_api_base_url"))validatedMemoryOrigin(result.memory_api_base_url);
-          await browserAuthenticator.acceptAutomaticResult(pending.request.request_id,result,pending.automatic_binding);
+          await browserAuthenticator.acceptAutomaticResult(pending.request.request_id,result,pending.automatic_binding,exchange.admission);
           const key=await requiredCredential(bridge,pending.pending_signing_target,"credential_missing");
           try {
             validatePrivateKey(key,pending.request.signing_public_key_pem);
@@ -869,8 +884,9 @@ export function createWindowsDeviceAuthManager({
 
     // This entry never delegates to resumptive auth work. The caller supplies
     // one live account/request scope; classification precedes backup recovery.
-    async repairLocal() {
+    async repairLocal({target=null,host="codex"}={}) {
       return underInstallLock(async () => {
+        if(target!==null)return retireAutomatic(target,host);
         const transaction=accountTransactions.getStore();
         const session=ownedNativeSession(transaction);
         if(typeof transaction.remainingMs!=="function")throw localError("Repair request ownership is required.","transaction_scope_invalid");
@@ -1039,6 +1055,115 @@ export function createWindowsDeviceAuthManager({
       });
     }
   };
+
+
+  function automaticIdentity(p){
+    const keys="audience,device_label,nonce,request_id,request_time,signing_public_key_pem";
+    if(!p||p.profile_automatic!==true||p.profile_manual||p.operation!=="browser_sign_in"
+      ||Object.keys(p.request??{}).sort().join(",")!==keys||!Object.values(p.request).every(v=>typeof v==="string")
+      ||!/^authreq_[a-f0-9]{36}$/.test(p.request.request_id)||p.request.audience!==apiBaseUrl
+      ||!Number.isFinite(Date.parse(p.created_at))||createPublicKey(p.request.signing_public_key_pem).asymmetricKeyType!=="ed25519")throw localError("Automatic repair binding refused.","account_state_conflict");
+    const key=pendingSigningTarget(p.request.request_id),secret=WINDOWS_BROWSER_AUTH_SECRET_PREFIX+digest(p.request.request_id);
+    const allowed=new Set(["schema_version","operation","phase","request","created_at","recovery_expires_at","staged_targets","pending_signing_target","profile_automatic","automatic_binding","automatic_timing","retirement"]);
+    if(Object.keys(p).some(k=>!allowed.has(k))||p.pending_signing_target!==key||!Array.isArray(p.staged_targets)
+      ||p.staged_targets.length!==2||new Set(p.staged_targets).size!==2||!p.staged_targets.includes(key)||!p.staged_targets.includes(secret))throw localError("Automatic repair target refused.","account_state_conflict");
+    return {key,secret};
+  }
+  async function automaticRetirementProof(values,remaining,host){
+    const refuse=()=>{throw localError("Automatic repair state changed.","account_state_conflict");};
+    if(!["codex","claude_code"].includes(host)||values[0]||values[1]||!values[2])refuse();
+    if(readdirSync(stateDirectory).some(name=>name.startsWith("pending.json.tmp-")))refuse();
+    const p=values[2],{key,secret}=automaticIdentity(p),retiring=p.phase==="automatic_retiring";
+    if(!retiring&&!["prepared","remote_ambiguous"].includes(p.phase))refuse();
+    if(!Number.isFinite(Date.parse(now()))||Date.parse(now())<Date.parse(p.recovery_expires_at))refuse();
+    const r=p.retirement;
+    const hex=x=>typeof x==="string"&&/^[a-f0-9]{64}$/.test(x);
+    if(retiring&&(!r||Object.keys(r).sort().join(",")!=="browser_sha256,key_sha256,schema_version,secret_sha256,source_journal_sha256,source_phase,target_observation_sha256"
+      ||r.schema_version!=="kovya.automatic-retirement.v1"||!["prepared","remote_ambiguous"].includes(r.source_phase)
+      ||!hex(r.source_journal_sha256)||!hex(r.target_observation_sha256)||![r.key_sha256,r.secret_sha256,r.browser_sha256].every(x=>x===null||hex(x))))refuse();
+    const binding=p.automatic_binding;
+    if(!retiring&&p.retirement!==undefined)refuse();
+    if(binding){
+      if(Object.keys(binding).sort().join(",")!=="consent_nonce_hash,pkce_challenge,redirect_uri,state_sha256"
+        ||!/^sha256:[a-f0-9]{64}$/.test(binding.consent_nonce_hash)||!/^[A-Za-z0-9_-]{43}$/.test(binding.pkce_challenge)||!hex(binding.state_sha256))refuse();
+      if(binding.redirect_uri!==null){const u=new URL(binding.redirect_uri);if(u.protocol!=="http:"||u.hostname!=="127.0.0.1"||!u.port||u.pathname!=="/kovya/device-authorization/callback"||u.search||u.hash||u.username||u.password)refuse();}
+    }else if((retiring?r.source_phase:p.phase)!=="prepared"||values[4])refuse();
+    const sourcePhase=retiring?r.source_phase:p.phase;
+    if(sourcePhase==="remote_ambiguous"&&(!binding||binding.redirect_uri===null)||sourcePhase==="prepared"&&binding&&binding.redirect_uri!==null)refuse();
+    const previous=values[3];
+    if(previous&&!retiring){
+      automaticIdentity(previous);
+      if(stableJson(previous.request)!==stableJson(p.request)||previous.created_at!==p.created_at||previous.pending_signing_target!==key
+        ||previous.phase==="automatic_retiring"||!["prepared","remote_ambiguous"].includes(previous.phase))refuse();
+      if(stableJson(previous)!==stableJson(p)){
+        if(previous.phase!=="prepared"&&!(previous.phase==="remote_ambiguous"&&p.automatic_timing?.accepted_at&&previous.automatic_timing?.accepted_at===null))refuse();
+        if(previous.automatic_binding&&stableJson({...previous.automatic_binding,redirect_uri:binding?.redirect_uri})!==stableJson(binding))refuse();
+        const lifted={...previous,phase:p.phase,...(p.automatic_binding?{automatic_binding:p.automatic_binding}:{})};
+        if(previous.automatic_timing?.accepted_at===null&&p.automatic_timing?.accepted_at){lifted.automatic_timing=p.automatic_timing;lifted.recovery_expires_at=p.recovery_expires_at;}
+        if(stableJson(lifted)!==stableJson(p))refuse();
+      }
+    }
+    const b=values[4];
+    if(retiring&&(r.key_sha256===null&&r.secret_sha256!==null||r.secret_sha256===null&&r.browser_sha256!==null))refuse();
+    if(b&&Object.keys(b).some(k=>!["schema_version","transaction_id","authorization_url","expires_at","request_id","redirect_uri","device_public_key_pem","device_label","secret_target","created_at","automatic_timing"].includes(k)))refuse();
+    if(b&&(b.delivery_mode!==undefined||b.request_id!==p.request.request_id||b.secret_target!==secret||b.device_public_key_pem!==p.request.signing_public_key_pem
+      ||b.device_label!==p.request.device_label||b.created_at!==p.created_at||b.redirect_uri!==binding?.redirect_uri
+      ||new URL(b.authorization_url).origin!==apiBaseUrl||!p.automatic_timing&&Date.parse(b.expires_at)>Date.parse(p.recovery_expires_at)||stableJson(b.automatic_timing??null)!==stableJson(p.automatic_timing??null)))refuse();
+    const tx=accountTransactions.getStore(),session=ownedNativeSession(tx),witness=await captureWindowsAuthCredentialWitness({remainingMs:remaining});
+    let privateKey,protectedBytes;
+    try{
+      privateKey=await bridge.read(key);protectedBytes=await bridge.read(secret);
+      if(privateKey)validatePrivateKey(privateKey,p.request.signing_public_key_pem);
+      if(protectedBytes){
+        const v=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(protectedBytes));
+        if(!v||Object.keys(v).sort().join(",")!=="consent_nonce,exchange_code,exchange_result,pkce_verifier,state"
+          ||v.exchange_code!==null||v.exchange_result!==null||!["state","pkce_verifier","consent_nonce"].every(k=>typeof v[k]==="string"&&/^[A-Za-z0-9_-]{43}$/.test(v[k])))refuse();
+        if(binding&&(binding.state_sha256!==digest(v.state)||binding.pkce_challenge!==createHash("sha256").update(v.pkce_verifier).digest("base64url")||binding.consent_nonce_hash!=="sha256:"+digest(v.consent_nonce)))refuse();
+      }
+      if(retiring){
+        if(privateKey&&(r.key_sha256===null||digest(privateKey)!==r.key_sha256)||protectedBytes&&(r.secret_sha256===null||digest(protectedBytes)!==r.secret_sha256))refuse();
+        if(!protectedBytes&&r.secret_sha256!==null&&privateKey||!b&&r.browser_sha256!==null&&protectedBytes)refuse();
+        if(b&&(r.browser_sha256===null||witness.documents.browser_journal!==r.browser_sha256))refuse();
+        if(previous&&witness.documents.device_journal_previous!==r.source_journal_sha256)refuse();
+      }else if(binding&&(!privateKey||!protectedBytes)||!binding&&protectedBytes&&!privateKey)refuse();
+      if(await session.compareCredentialWitness(witness,{remainingMs:remaining})!==true)refuse();
+      const target={schema_version:"kovya.automatic-repair-target.v1",host,request_ref:p.request.request_id,
+        observation_sha256:digest(stableJson({schema_version:"kovya.automatic-repair-observation.v1",host,home:stateKey(home),origin:apiBaseUrl,documents:values,credential_witness:witness}))};
+      return {target,p,witness,session,key,secret};
+    }finally{privateKey?.fill(0);protectedBytes?.fill(0);}
+  }
+  async function retireAutomatic(target,host){
+    if(!target||Object.keys(target).sort().join(",")!=="host,observation_sha256,request_ref,schema_version"
+      ||target.schema_version!=="kovya.automatic-repair-target.v1"||target.host!==host)throw localError("Repair target refused.","account_state_conflict");
+    const tx=accountTransactions.getStore(),remaining=tx.remainingMs;
+    const proof=await automaticRetirementProof(documents.map(d=>readWindowsAuthDocument(d.path,d.validate)),remaining,host);
+    if(stableJson(target)!==stableJson(proof.target))throw localError("Repair offer is stale.","account_state_conflict");
+    let marker=proof.p;
+    if(marker.phase!=="automatic_retiring"){
+      marker={...marker,phase:"automatic_retiring",retirement:{schema_version:"kovya.automatic-retirement.v1",source_phase:marker.phase,
+        target_observation_sha256:target.observation_sha256,source_journal_sha256:proof.witness.documents.device_journal,
+        key_sha256:proof.witness.credentials[proof.key]??null,secret_sha256:proof.witness.credentials[proof.secret]??null,browser_sha256:proof.witness.documents.browser_journal}};
+      writeJsonAtomic(journalPath,marker);
+    }
+    await refreshOwnedSnapshot();
+    const fresh=await captureWindowsAuthCredentialWitness({remainingMs:remaining});
+    const expected=digest(Buffer.from(JSON.stringify(marker,null,2)+"\n","utf8"));
+    if(fresh.home_sha256!==proof.witness.home_sha256||stableJson(fresh.credentials)!==stableJson(proof.witness.credentials)||fresh.documents.browser_journal!==proof.witness.documents.browser_journal||fresh.documents.device_journal!==expected||fresh.documents.manifest!==null||fresh.documents.manifest_previous!==null
+      ||fresh.documents.device_journal_previous!==null&&fresh.documents.device_journal_previous!==marker.retirement.source_journal_sha256)throw localError("Retirement publication unconfirmed.","account_state_conflict");
+    await automaticRetirementProof(documents.map(d=>readWindowsAuthDocument(d.path,d.validate)),remaining,host);
+    for(const credential of [proof.key,proof.secret]){
+      assertWindowsAuthEffect(manifestPath);await bridge.delete(credential);assertWindowsAuthEffect(manifestPath);
+      const bytes=await bridge.read(credential);if(bytes){bytes.fill(0);throw localError("Credential retirement unconfirmed.","credential_delete_failed");}
+      await refreshOwnedSnapshot();await automaticRetirementProof(documents.map(d=>readWindowsAuthDocument(d.path,d.validate)),remaining,host);
+    }
+    for(const file of [documents[4].path,documents[3].path,journalPath]){
+      assertWindowsAuthEffect(manifestPath);removeIfPresent(file);await refreshOwnedSnapshot();
+      const snapshot=documents.map(d=>readWindowsAuthDocument(d.path,d.validate));
+      if(readWindowsAuthDocument(file,x=>x)!==null)throw localError("Journal retirement unconfirmed.","account_state_conflict");
+      if(file!==journalPath)await automaticRetirementProof(snapshot,remaining,host);
+    }
+    return Object.freeze({ok:true,outcome:"automatic_retired",repair:Object.freeze({schema_version:"kovya.automatic-repair-completion.v1",request_ref:target.request_ref,observation_sha256:target.observation_sha256,postcondition:"owned_automatic_transients_absent"})});
+  }
 
   function manualPhase(remainingMs,work,credentialWitness=null,consumer=null) {
     requireWitnessBudget(remainingMs);
@@ -1910,8 +2035,20 @@ function validateJournal(journal) {
   boundedString(journal.recovery_expires_at, "recovery_expires_at", 20, 64);
   const requestAt = Date.parse(journal.request.request_time);
   const recoveryExpiresAt = Date.parse(journal.recovery_expires_at);
+  const timing=journal.automatic_timing;
+  let expectedRecovery=requestAt+WINDOWS_AUTH_RECOVERY_WINDOW_MS;
+  if(timing!==undefined){
+    if(journal.profile_automatic!==true||!timing||Object.keys(timing).sort().join(",")!=="accepted_at,page_expires_at,schema_version,start_deadline_at"
+      ||timing.schema_version!=="kovya.automatic-timing.v1"||Date.parse(timing.start_deadline_at)!==requestAt+35000)throw localError("Automatic timing is invalid.","journal_invalid");
+    if(timing.accepted_at===null&&timing.page_expires_at===null)expectedRecovery=requestAt+35000;
+    else{
+      const accepted=Date.parse(timing.accepted_at),page=Date.parse(timing.page_expires_at);
+      if(!Number.isFinite(accepted)||!Number.isFinite(page)||accepted<requestAt||accepted>requestAt+35000||page<=accepted||page-accepted>305000)throw localError("Automatic timing is invalid.","journal_invalid");
+      expectedRecovery=page+35000;
+    }
+  }
   if (!Number.isFinite(requestAt) || !Number.isFinite(recoveryExpiresAt)
-      || recoveryExpiresAt !== requestAt + WINDOWS_AUTH_RECOVERY_WINDOW_MS) {
+      || recoveryExpiresAt !== expectedRecovery) {
     throw localError("Auth recovery journal expiry is invalid.", "journal_invalid");
   }
   if (Object.hasOwn(journal.request, "account_access_key") || Object.hasOwn(journal.request, "refresh_credential")) {

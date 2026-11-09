@@ -63,7 +63,7 @@ const messages = Object.freeze({
 // Never return manager results: they may contain access credentials or account IDs.
 export function createPluginOnboarding({layout,release,platform=process.platform,managerFactory=createWindowsPluginManager,accountStateProvider}) {
   let profileStatusProvider=accountStateProvider;
-  return Object.freeze({async run(operation,host,{inputProvider=null}={}) {
+  return Object.freeze({async run(operation,host,{inputProvider=null,repairTarget=null}={}) {
     return runTerminalOperation({operation,host},async()=>{
     const statusDeadline=performance.now()+1000;
     const runProfileWorkRequest=async(remaining,work)=>{
@@ -109,13 +109,13 @@ export function createPluginOnboarding({layout,release,platform=process.platform
           },{accountStateProvider:profileStatusProvider,remainingMs:request.remainingMs});
         });
       }
-      if(["connect","finish"].includes(operation) && profileWorkConfigured()) {
-        profileStatusProvider ??= createKovyaWindowsProfileAccountStateProvider({prepared:true});
+      if((["connect","finish"].includes(operation)||operation==="repair"&&repairTarget!==null) && profileWorkConfigured()) {
+        profileStatusProvider ??= createKovyaWindowsProfileAccountStateProvider({prepared:repairTarget===null});
         // Each local phase owns and ends its existing short Work ticket.
         // Only successful checked cleanup permits the intervening HTTP or B.
-        let lastDiagnostics;
+        let lastDiagnostics,repairing=repairTarget!==null,repaired=false;
         const localPhase=async(_name,work,networkObservation)=>{
-          const value=await runObservedProfileWorkRequest(()=>1000,()=>work(borrowProfileWorkRequest().remainingMs),{operation,host,phase:_name,networkObservation});
+          const value=await runObservedProfileWorkRequest(()=>1000,()=>work(borrowProfileWorkRequest().remainingMs),{operation,host,phase:_name,networkObservation,...(repairTarget?{terminal_candidate:(value,error)=>!!error||!repairing&&(value?.terminal!==undefined||typeof value?.ok==="boolean")}:{} )});
           lastDiagnostics=diagnosticReceipt(value);return value;
         };
         const response=await (async()=>{
@@ -131,17 +131,28 @@ export function createPluginOnboarding({layout,release,platform=process.platform
               return input;
             };
             profileManager=managerFactory({layout,release:config},{accountStateProvider:profileStatusProvider});
-            const auth=operation==="connect"?await profileManager.startProfileAutomatic({localPhase})
+            if(repairTarget!==null){
+              const proof=await localPhase("local_preparation",remaining=>withWindowsAuthState(layout.authManifest,config.authorization_origin,
+                ()=>profileManager.repairLocal({target:repairTarget,host}),{accountStateProvider:profileStatusProvider,remainingMs:remaining,failFast:true}));
+              if(!proof||Object.keys(proof).sort().join(",")!=="ok,outcome,repair"||proof.ok!==true||proof.outcome!=="automatic_retired"
+                ||Object.keys(proof.repair??{}).sort().join(",")!=="observation_sha256,postcondition,request_ref,schema_version"
+                ||proof.repair.schema_version!=="kovya.automatic-repair-completion.v1"||proof.repair.request_ref!==repairTarget.request_ref
+                ||proof.repair.observation_sha256!==repairTarget.observation_sha256||proof.repair.postcondition!=="owned_automatic_transients_absent")throw new Error("account_state_conflict");
+              // Successful localPhase returns only after checked cleanup/End.
+              repairing=false;repaired=true;
+            }
+            const auth=operation==="connect"||repairTarget!==null?await profileManager.startProfileAutomatic({localPhase,host})
               :await profileManager.finishProfileManual({localPhase,inputProvider:readInput});
             if(operation==="connect"&&auth?.outcome==="manual_required"){
               process.stderr.write("Kovya: waiting for authorization. Finish within 5 minutes; use the displayed expiry if sooner.\n");
               return {...result("approval_required"),authorization_url:auth.authorization_url,pending_ref:auth.pending_ref,expires_at:auth.expires_at};
             }
             if(auth?.ok===true)return result(auth.outcome==="session_present"?"session_present":"connected",auth.manifest);
-            return {...result(["ambiguous","sign_in_required","cancelled"].includes(auth?.outcome)?auth.outcome:"pending"),...diagnosticRecovery({phase:auth?.phase,recovery_expires_at:auth?.recovery_expires_at,created_at:auth?.attempt_created_at})};
+            return {...result(["ambiguous","sign_in_required","cancelled"].includes(auth?.outcome)?auth.outcome:"pending"),...(auth?.repair_guidance?{repair_guidance:auth.repair_guidance}:{}),...diagnosticRecovery({phase:auth?.phase,recovery_expires_at:auth?.recovery_expires_at,created_at:auth?.attempt_created_at})};
           } finally {input?.code?.fill?.(0);await finishStage("worker_cleanup",()=>profileManager?.shutdown?.());}
         })();
-        return lastDiagnostics?{...response,diagnostics:lastDiagnostics}:response;
+        const projected=repaired?{...response,repair:{kind:"expired_automatic",request_ref:repairTarget.request_ref,local_cleanup:"complete",continuation:"invoked"}}:response;
+        return lastDiagnostics?{...projected,diagnostics:lastDiagnostics}:projected;
       }
       if(operation==="finish")return result("platform_unavailable");
       if(operation==="status" && profileWorkConfigured()) {
