@@ -1,6 +1,6 @@
 import {withWindowsAuthState,readWindowsAuthDocument,recordWindowsAuthDocument,observeWindowsAuthState,assertWindowsAuthEffect,rethrowInactiveWindowsAuthError,guardWindowsAuthCredentialBridge} from "./kovya-windows-device-auth.mjs";
 import {diagnosticAttemptId,bindDiagnosticAttempt,serverDiagnosticReason,noteServerDiagnostic,browserExchangeRefusalReason,diagnosticStage,diagnosticObservation,propagateDiagnosticFailure,noteAuthenticationDeadline,classifyDiagnosticError} from "../../plugin/diagnostic-events.mjs";
-import { spawn } from "node:child_process";
+import {openWindowsDesktopBrowser} from "./kovya-windows-desktop-browser.mjs";
 import { createHash, randomBytes as nodeRandomBytes, timingSafeEqual } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
@@ -74,17 +74,16 @@ export function createWindowsBrowserAuthorizationTransport({ apiBaseUrl, fetchIm
   }
 }
 
-export function createWindowsBrowserLauncher({ spawnImpl = spawn } = {}) {
+export function createWindowsBrowserLauncher(options = {}) {
   return Object.freeze({
     async open(url) {
       const exact = authorizationUrl(url);
-      await new Promise((resolve, reject) => {
-        const child = spawnImpl("rundll32.exe", ["url.dll,FileProtocolHandler", exact], {
-          windowsHide: true, stdio: "ignore", shell: false
-        });
-        child.once("error", reject);
-        child.once("spawn", resolve);
-      }).catch((cause) => { throw browserError("browser_launch_failed", false, cause); });
+      try { return await openWindowsDesktopBrowser(exact, options); }
+      catch (cause) {
+        const error = browserError("browser_launch_failed", cause?.ambiguous === true);
+        error.launch_status = ["desktop_browser_refused", "desktop_browser_ambiguous", "desktop_browser_timeout", "desktop_browser_cleanup_unconfirmed"].includes(cause?.code) ? cause.code : "desktop_browser_refused";
+        throw error;
+      }
     }
   });
 }
@@ -430,7 +429,7 @@ export function createWindowsBrowserAuthorizationClient({
       finally { readback?.fill(0); }
       writeAtomic(statePath, journal);
       try { await browserLauncher.open(journal.authorization_url); }
-      catch (cause) { receiver.close(); throw browserError("browser_launch_failed", false, cause); }
+      catch (cause) { receiver.close(); throw browserError("browser_launch_failed", cause?.ambiguous === true); }
       let callback;
       try { callback = await receiver.result; }
       catch (error) {
