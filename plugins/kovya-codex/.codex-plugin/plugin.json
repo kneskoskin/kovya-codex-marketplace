@@ -1,6 +1,6 @@
 {
   "name": "kovya-codex",
-  "version": "0.1.0-preview.10.4",
+  "version": "0.1.0-preview.10.5",
   "description": "Kovya automatic memory connector preview; shared runtime acceptance remains required.",
   "author": {
     "name": "Kovya"
@@ -17,6 +17,8 @@
       "Read",
       "Write"
     ],
-    "defaultPrompt": "Check Kovya memory status."
+    "defaultPrompt": "Check Kovya memory status.",
+    "logo": "./assets/kovya-icon.png",
+    "composerIcon": "./assets/kovya-icon.png"
   }
 }

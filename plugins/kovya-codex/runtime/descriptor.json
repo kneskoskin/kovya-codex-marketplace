@@ -1,5 +1,5 @@
 {
-  "version": "1.0.10",
+  "version": "1.0.11",
   "files": [
     {
       "path": "connector/claude-code/client/kovya-managed-process-streams.mjs",
@@ -55,7 +55,15 @@
     },
     {
       "path": "connector/claude-code/client/kovya-windows-browser-auth.mjs",
-      "sha256": "c0071f939c00486604c0ca448712a852cd8a9b744abf189372ac83d01948f84f"
+      "sha256": "bfae669581663bd8a37c9812d0cc80f61a9356ef08bca9cd41fca7dac267edbd"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-windows-desktop-browser.mjs",
+      "sha256": "89de3bfa501db6f2a3e37e0cddedc595f25f214392af29ecb8a33385e110d4e6"
+    },
+    {
+      "path": "connector/claude-code/client/kovya-windows-desktop-browser.ps1",
+      "sha256": "364fa7ffa6701217a6c6df282f4b82dfbe3c1b82abb5937832336a7ba6d3c4e7"
     },
     {
       "path": "connector/claude-code/client/kovya-windows-device-auth.mjs",
@@ -208,5 +216,5 @@
     "native": "connector/claude-code/client/kovya_windows_broker_native.exe",
     "client": "connector/claude-code/client/kovya-memory-client.mjs"
   },
-  "digest": "13d9edf61f2c7d8f3c7723de195638d6429b73d5a52bfb5a72e504463cd773fb"
+  "digest": "dac4e2dd29936d92549ccbe3238892a2e19f93b16170255c66379c5aa00a8ac5"
 }
