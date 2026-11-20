@@ -1,4 +1,4 @@
-# Kovya Windows preview 0.1.0-preview.10.5
+# Kovya Windows preview 0.1.0-preview.10.6
 
 Install through the intended host plugin marketplace only after the candidate is published and accepted for that host. Review hook permissions, refresh the host session, then ask the setup skill: Connect Kovya.
 
